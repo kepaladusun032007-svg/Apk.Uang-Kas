@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Uang Kas  - Aplikasi Pembayaran Iuran</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen pb-20">
+
+    <div id="app" class="max-w-md mx-auto bg-white min-h-screen shadow-lg">
+        <div id="content" class="p-4">
+        </div>
+    </div>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-4 z-50 max-w-md mx-auto">
+        <button onclick="renderView('home')" class="flex flex-col items-center gap-1 nav-btn" id="nav-home">
+            <i data-lucide="home"></i>
+            <span class="text-xs">Beranda</span>
+        </button>
+        <button onclick="renderView('payment')" class="flex flex-col items-center gap-1 nav-btn" id="nav-payment">
+            <i data-lucide="credit-card"></i>
+            <span class="text-xs">Bayar</span>
+        </button>
+        <button onclick="renderView('warga')" class="flex flex-col items-center gap-1 nav-btn" id="nav-warga">
+            <i data-lucide="users"></i>
+            <span class="text-xs">Warga</span>
+        </button>
+        <button onclick="renderView('history')" class="flex flex-col items-center gap-1 nav-btn" id="nav-history">
+            <i data-lucide="list-checks"></i>
+            <span class="text-xs">Riwayat</span>
+        </button>
+    </nav>
+
+    <script>
+        const storedState = localStorage.getItem('rwDigitalState');
+        const state = storedState ? JSON.parse(storedState) : {
+            view: 'home',
+            warga: [], 
+            transactions: [], 
+            searchQuery: '',
+            filterStart: '',
+            filterEnd: '',
+            editingWargaIndex: null
+        };
+
+        function saveToStorage() {
+            localStorage.setItem('rwDigitalState', JSON.stringify(state));
+        }
+
+        function isPaid(name, category) {
+            const currentMonth = new Date().getMonth();
+            const currentYear = new Date().getFullYear();
+            return state.transactions.some(t => 
+                t.name === name && 
+                t.type === 'IN' &&
+                t.category === category &&
+                new Date(t.date).getMonth() === currentMonth &&
+                new Date(t.date).getFullYear() === currentYear
+            );
+        }
+
+        function saveWarga() {
+            const name = document.getElementById('formName').value;
+            const nik = document.getElementById('formNik').value;
+            const alamat = document.getElementById('formAlamat').value;
+            const rt = document.getElementById('formRt').value;
+            const rw = document.getElementById('formRw').value;
+
+            if (state.editingWargaIndex !== null) {
+                state.warga[state.editingWargaIndex] = { 'Nama Warga': name, 'NIK': nik, 'Alamat': alamat, 'RT': rt, 'RW': rw };
+                state.editingWargaIndex = null;
+            } else {
+                state.warga.push({ 'Nama Warga': name, 'NIK': nik, 'Alamat': alamat, 'RT': rt, 'RW': rw });
+            }
+            saveToStorage();
+            renderView('warga');
+        }
+
+        function editWarga(index) {
+            state.editingWargaIndex = index;
+            renderView('warga');
+        }
+
+        function deleteWarga(index) {
+            if(confirm('Hapus warga ini?')) {
+                state.warga.splice(index, 1);
+                saveToStorage();
+                renderView('warga');
+            }
+        }
+
+        function renderView(view, extraData = null, selectedCategory = 'Iuran Kebersihan') {
+            state.view = view;
+            const content = document.getElementById('content');
+            const today = new Date().toISOString().split('T')[0];
+            
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('text-blue-600'));
+            const activeNav = document.getElementById(`nav-${view.split('-')[0]}`);
+            if(activeNav) activeNav.classList.add('text-blue-600');
+
+            const totalPemasukan = state.transactions.filter(t => t.type === 'IN').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+            const totalPengeluaran = state.transactions.filter(t => t.type === 'OUT').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+            const saldo = totalPemasukan - totalPengeluaran;
+
+            // Perhitungan per bulan
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            const monthlyTransactions = state.transactions.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            });
+            const monthlyIncome = monthlyTransactions.filter(t => t.type === 'IN').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+            const monthlyExpense = monthlyTransactions.filter(t => t.type === 'OUT').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+
+            if (view === 'home') {
+                content.innerHTML = `
+                    <div class="bg-slate-800 p-6 rounded-2xl text-white shadow-xl mb-6">
+                        <h2 class="text-xl font-bold">Aplikasi Uang Kas </h2>
+                        <p class="text-slate-300 text-sm">RW 00 - Desa Suci Kab. Garut</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <p class="text-slate-500 text-sm">Total Saldo Kas</p>
+                            <p class="text-3xl font-bold text-slate-800">Rp${saldo.toLocaleString()}</p>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                             <div class="bg-blue-600 p-4 rounded-2xl text-white shadow">
+                                <p class="text-blue-100 text-[10px] uppercase">Warga</p>
+                                <p class="text-xl font-bold">${state.warga.length}</p>
+                            </div>
+                            <div class="bg-purple-600 p-4 rounded-2xl text-white shadow">
+                                <p class="text-purple-100 text-[10px] uppercase">Total Pemasukan</p>
+                                <p class="text-xl font-bold">Rp${(totalPemasukan/1000).toFixed(0)}k</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-emerald-600 p-4 rounded-2xl text-white shadow">
+                                <p class="text-emerald-100 text-[10px] uppercase">Masuk Bulan Ini</p>
+                                <p class="text-lg font-bold">Rp${(monthlyIncome/1000).toFixed(0)}k</p>
+                            </div>
+                            <div class="bg-red-500 p-4 rounded-2xl text-white shadow">
+                                <p class="text-red-100 text-[10px] uppercase">Keluar Bulan Ini</p>
+                                <p class="text-lg font-bold">Rp${(monthlyExpense/1000).toFixed(0)}k</p>
+                            </div>
+                        </div>
+                    </div>`;
+            } 
+            
+            else if (view === 'warga') {
+                const w = state.editingWargaIndex !== null ? state.warga[state.editingWargaIndex] : {};
+                content.innerHTML = `
+                    <h2 class="text-lg font-bold mb-4">Data Warga</h2>
+                    <div class="bg-slate-50 p-4 rounded-xl border mb-6">
+                        <h3 class="font-bold text-sm mb-3">${state.editingWargaIndex !== null ? 'Edit Warga' : 'Tambah Warga Baru'}</h3>
+                        <input type="text" id="formName" placeholder="Nama Warga" value="${w['Nama Warga'] || ''}" class="w-full p-2 mb-2 border rounded-lg text-sm">
+                        <input type="text" id="formNik" placeholder="NIK" value="${w['NIK'] || ''}" class="w-full p-2 mb-2 border rounded-lg text-sm">
+                        <input type="text" id="formAlamat" placeholder="Alamat" value="${w['Alamat'] || ''}" class="w-full p-2 mb-2 border rounded-lg text-sm">
+                        <div class="flex gap-2">
+                            <input type="text" id="formRt" placeholder="RT" value="${w['RT'] || ''}" class="w-1/2 p-2 mb-2 border rounded-lg text-sm">
+                            <input type="text" id="formRw" placeholder="RW" value="${w['RW'] || ''}" class="w-1/2 p-2 mb-2 border rounded-lg text-sm">
+                        </div>
+                        <button onclick="saveWarga()" class="w-full bg-blue-600 text-white p-2 rounded-lg font-bold">${state.editingWargaIndex !== null ? 'Update' : 'Simpan'}</button>
+                    </div>
+                    <div class="space-y-4">
+                        <button onclick="downloadTemplate()" class="w-full bg-slate-100 p-3 rounded-xl text-slate-700 font-medium text-sm flex items-center justify-center gap-2">
+                            <i data-lucide="download" class="w-4 h-4"></i> Template Excel
+                        </button>
+                        <input type="file" onchange="handleFileUpload(event)" class="w-full border p-2 rounded-xl text-sm">
+                        <div class="mt-4 border-t pt-4">
+                            ${state.warga.map((w, i) => `
+                                <div class="p-3 border rounded-xl mb-2 bg-white flex justify-between items-center">
+                                    <div>
+                                        <p class="font-bold text-sm">${w['Nama Warga'] || 'Tanpa Nama'}</p>
+                                        <p class="text-xs text-slate-500">RT ${w['RT'] || '-'}/RW ${w['RW'] || '-'}</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button onclick="editWarga(${i})" class="text-blue-500"><i data-lucide="edit" class="w-4 h-4"></i></button>
+                                        <button onclick="deleteWarga(${i})" class="text-red-500"><i data-lucide="trash" class="w-4 h-4"></i></button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+            } 
+            
+            else if (view === 'payment') {
+                const filtered = state.warga.filter(w => (w['Nama Warga'] || '').toLowerCase().includes(state.searchQuery.toLowerCase()));
+                content.innerHTML = `
+                    <h2 class="text-lg font-bold mb-4">Pembayaran Iuran</h2>
+                    <input type="text" placeholder="Cari nama warga..." oninput="state.searchQuery = this.value; renderView('payment')" class="w-full p-3 mb-4 border rounded-xl" value="${state.searchQuery}">
+                    <div class="space-y-2">${filtered.map(w => `
+                        <div class="flex justify-between items-center p-3 border rounded-xl bg-white">
+                            <div>
+                                <p class="font-bold text-sm">${w['Nama Warga']}</p>
+                                <p class="text-[10px] text-slate-400">NIK: ${w['NIK'] || '-'} | ${w['Alamat'] || '-'}</p>
+                            </div>
+                            <button onclick="renderView('payment-detail', '${w['Nama Warga']}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Bayar</button>
+                        </div>`).join('')}</div>`;
+            } 
+            
+            else if (view === 'payment-detail') {
+                const paid = isPaid(extraData, selectedCategory);
+                content.innerHTML = `
+                    <h2 class="text-lg font-bold mb-4">Form Pembayaran</h2>
+                    <div class="${paid ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'} border p-3 rounded-xl mb-4 flex justify-between items-center">
+                        <span class="text-[10px] font-bold ${paid ? 'text-green-800' : 'text-amber-800'} uppercase">Status</span>
+                        <span class="text-[10px] font-bold ${paid ? 'text-green-800 bg-green-200' : 'text-amber-800 bg-amber-200'} px-2 py-1 rounded-full uppercase">
+                            ${paid ? 'Lunas' : 'Belum Lunas'}
+                        </span>
+                    </div>
+                    <div class="bg-slate-100 p-4 rounded-xl mb-4 text-sm">
+                        <p>Warga: <span class="font-bold">${extraData}</span></p>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-[10px] font-bold mb-1 uppercase">Jenis Iuran</label>
+                            <select id="payType" onchange="renderView('payment-detail', '${extraData}', this.value)" class="w-full p-3 border rounded-xl bg-white text-sm">
+                                <option ${selectedCategory === 'Iuran Kebersihan' ? 'selected' : ''}>Iuran Kebersihan</option>
+                                <option ${selectedCategory === 'Iuran Keamanan' ? 'selected' : ''}>Iuran Keamanan</option>
+                                <option ${selectedCategory === 'Iuran Warga Bulanan' ? 'selected' : ''}>Iuran Warga Bulanan</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold mb-1 uppercase">Tanggal Pembayaran</label>
+                            <input type="date" id="payDate" value="${today}" class="w-full p-3 border rounded-xl text-sm">
+                        </div>
+                        ${!paid ? `
+                        <div>
+                            <label class="block text-[10px] font-bold mb-1 uppercase">Nominal</label>
+                            <input type="number" id="payAmount" value="50000" class="w-full p-3 border rounded-xl text-sm">
+                        </div>
+                        <button onclick="processTransaction('${extraData}', 'IN')" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-sm">Simpan Pembayaran</button>` : ''}
+                    </div>
+                    <button onclick="renderView('payment')" class="w-full mt-4 text-slate-500 text-sm font-semibold">Kembali</button>`;
+            } 
+            
+            else if (view === 'history') {
+                const filteredHistory = state.transactions.filter(t => {
+                    const matchesQuery = t.name.toLowerCase().includes(state.searchQuery.toLowerCase());
+                    const matchesStart = !state.filterStart || t.date >= state.filterStart;
+                    const matchesEnd = !state.filterEnd || t.date <= state.filterEnd;
+                    return matchesQuery && matchesStart && matchesEnd;
+                });
+
+                content.innerHTML = `
+                    <h2 class="text-lg font-bold mb-4">Riwayat & Pengeluaran</h2>
+                    <div class="bg-slate-50 p-4 rounded-2xl mb-6 border">
+                        <h3 class="font-bold mb-2 text-xs text-slate-700 uppercase">Tambah Pengeluaran</h3>
+                        <input type="text" id="expName" placeholder="Penerima / Nama" class="w-full p-2 mb-2 border rounded-xl text-xs">
+                        <input type="text" id="expDesc" placeholder="Keterangan" class="w-full p-2 mb-2 border rounded-xl text-xs">
+                        <input type="number" id="expAmount" placeholder="Nominal" class="w-full p-2 mb-2 border rounded-xl text-xs">
+                        <input type="date" id="expDate" value="${today}" class="w-full p-2 mb-2 border rounded-xl text-xs">
+                        <button onclick="processTransaction('Pengeluaran', 'OUT')" class="w-full bg-red-500 text-white py-2 rounded-xl text-xs font-bold">Simpan Pengeluaran</button>
+                    </div>
+                    <div class="space-y-2 mb-4">
+                        <input type="text" placeholder="Cari..." oninput="state.searchQuery = this.value; renderView('history')" class="w-full p-2 border rounded-xl text-xs" value="${state.searchQuery}">
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="date" value="${state.filterStart}" onchange="state.filterStart = this.value; renderView('history')" class="w-full p-2 border rounded-xl text-xs">
+                            <input type="date" value="${state.filterEnd}" onchange="state.filterEnd = this.value; renderView('history')" class="w-full p-2 border rounded-xl text-xs">
+                        </div>
+                        <button onclick="exportTransactions()" class="w-full bg-green-600 text-white py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
+                            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Export Excel
+                        </button>
+                    </div>
+                    <div class="space-y-2">
+                        ${filteredHistory.sort((a,b) => new Date(b.date) - new Date(a.date)).map(h => `
+                            <div class="p-3 border rounded-xl flex justify-between items-center ${h.type === 'OUT' ? 'border-red-100 bg-red-50' : ''}">
+                                <div>
+                                    <p class="font-bold text-xs">${h.name}</p>
+                                    <p class="text-[10px] text-slate-500">${h.category} • ${h.date}</p>
+                                </div>
+                                <span class="${h.type === 'OUT' ? 'text-red-600' : 'text-blue-600'} font-bold text-xs">
+                                    ${h.type === 'OUT' ? '-' : '+'}Rp${parseInt(h.amount).toLocaleString()}
+                                </span>
+                            </div>`).join('')}
+                    </div>`;
+            }
+            lucide.createIcons();
+        }
+
+        function downloadTemplate() {
+            const data = [{ 'Nama Warga': '', 'NIK': '', 'Alamat': '', 'RT': '', 'RW': '', 'Pekerjaan': '', 'Status Warga': '' }];
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Data Warga");
+            XLSX.writeFile(wb, "Template_Data_Warga.xlsx");
+        }
+
+        function exportTransactions() {
+            // Filter transaksi berdasarkan rentang tanggal yang aktif di state
+            const filteredTransactions = state.transactions.filter(t => {
+                const matchesStart = !state.filterStart || t.date >= state.filterStart;
+                const matchesEnd = !state.filterEnd || t.date <= state.filterEnd;
+                return matchesStart && matchesEnd;
+            });
+
+            const totalPemasukan = filteredTransactions.filter(t => t.type === 'IN').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+            const totalPengeluaran = filteredTransactions.filter(t => t.type === 'OUT').reduce((sum, t) => sum + parseInt(t.amount || 0), 0);
+            const saldo = totalPemasukan - totalPengeluaran;
+
+            const summary = [
+                { 'Tanggal': 'Total Pemasukan', 'Nama': totalPemasukan, 'Jumlah Uang': '', 'Keterangan': '', 'Jenis': 'Ringkasan' },
+                { 'Tanggal': 'Total Pengeluaran', 'Nama': totalPengeluaran, 'Jumlah Uang': '', 'Keterangan': '', 'Jenis': 'Ringkasan' },
+                { 'Tanggal': 'Saldo Akhir', 'Nama': saldo, 'Jumlah Uang': '', 'Keterangan': '', 'Jenis': 'Ringkasan' },
+                { 'Tanggal': '', 'Nama': '', 'Jumlah Uang': '', 'Keterangan': '', 'Jenis': '' }
+            ];
+
+            const data = filteredTransactions.map(t => ({
+                'Tanggal': t.date,
+                'Nama': t.name,
+                'Jumlah Uang': t.amount,
+                'Keterangan': t.category,
+                'Jenis': t.type === 'IN' ? 'Pemasukan' : 'Pengeluaran'
+            }));
+            
+            const ws = XLSX.utils.json_to_sheet([...summary, ...data]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Riwayat Keuangan");
+            XLSX.writeFile(wb, "Laporan_Keuangan_RW.xlsx");
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const workbook = XLSX.read(e.target.result, {type: 'array'});
+                state.warga = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                saveToStorage();
+                renderView('warga');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processTransaction(name, type) {
+            let amount, category, date;
+            if (type === 'IN') {
+                amount = document.getElementById('payAmount').value;
+                category = document.getElementById('payType').value;
+                date = document.getElementById('payDate').value;
+            } else {
+                name = document.getElementById('expName').value || 'Pengeluaran';
+                category = document.getElementById('expDesc').value || 'Umum';
+                amount = document.getElementById('expAmount').value;
+                date = document.getElementById('expDate').value;
+            }
+
+            if (!amount) return;
+
+            state.transactions.unshift({ name, amount, type, category, date });
+            saveToStorage();
+            renderView(type === 'IN' ? 'payment' : 'history');
+        }
+
+        renderView('home');
+    </script>
+</body>
+</html>
